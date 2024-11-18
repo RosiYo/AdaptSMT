@@ -3,7 +3,7 @@
       "data_path": "antoniorv6/mozarteum",
       "batch_size": 1,
       "vocab_name": "Mozarteum_BeKern",
-      "num_workers": 20,
+      "num_workers": 8,
       "tokenization_mode": "bekern",
       "reduce_ratio": 1.0
     }

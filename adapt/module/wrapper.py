@@ -2,11 +2,12 @@
 Wrapper for the AdaptSMT model in Lightning.
 author: Antonio Russo
 """
+import random
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Dict
 from lightning.pytorch import LightningModule
 from torchinfo import summary
-import random
+from torch.optim import Optimizer
 import torch
 
 from adapt.loss.layer_norm_adapt import LayerNormAdapt
@@ -46,6 +47,11 @@ class WrapperAdaptSMT(LightningModule):
 
     def print(self, *args: Any, **kwargs: Any) -> None:
         summary(self.__model)
+
+    def configure_optimizers(self) -> Optimizer:
+        return torch.optim.Adam(
+            self.__model.trainable_params, lr=1e-4, amsgrad=False
+        )
 
     def __load_model(self, weights_path: str) -> None:
         """
@@ -124,7 +130,8 @@ class WrapperAdaptSMT(LightningModule):
         dec = dec.replace("<b>", "\n")
         dec = dec.replace("<s>", " ")
 
-        gt = "".join([self.model.i2w[token.item()] for token in y.squeeze(0)[:-1]])
+        gt = "".join([self.model.i2w[token.item()]
+                     for token in y.squeeze(0)[:-1]])
         gt = gt.replace("<t>", "\t")
         gt = gt.replace("<b>", "\n")
         gt = gt.replace("<s>", " ")
@@ -149,7 +156,7 @@ class WrapperAdaptSMT(LightningModule):
         self.__grtrs.clear()
         return ser
 
-    def test_step(self, test_batch) -> torch.Tensor | torch.Dict[str, torch.Any] | None:
+    def test_step(self, test_batch) -> torch.Tensor | Dict[str, Any] | None:
         return self.validation_step(test_batch)
 
     def on_test_epoch_end(self) -> None:

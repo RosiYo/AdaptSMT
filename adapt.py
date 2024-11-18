@@ -17,21 +17,31 @@ from adapt.utils.cfg import parse_dataset_arguments
 def parse_args() -> SimpleNamespace:
     """Parse the arguments for the adaptation script."""
     return SimpleNamespace(
-        dataset=dict(
-            config=parse_dataset_arguments("config/adaptation.json"),
-            fold=0
-        ),
+        dataset={
+            "config": parse_dataset_arguments("config/Mozarteum/finetuning.json"),
+            "fold": 0
+        },
+        trainer={
+            "exp": "Mozaertum_f0"
+        },
         model=WrapperAdaptSMTConfig(
             checkpoint="smt-camera-grandstaff",
         )
     )
 
 
-def get_trainer():
+def get_trainer(exp: str) -> Trainer:
+    """
+    Get the trainer for the adaptation process.
+
+    Args:
+        exp: The experiment name.
+    """
+
     wandb_logger = WandbLogger(
-        project='SMTPP',
-        group="Polish_Scores",
-        name=f"SMTPP_Polish_Scores_Bekern_f{fold}",
+        entity='grfia',
+        project="AdaptSMT",
+        name=exp,
         log_model=False
     )
 
@@ -45,7 +55,7 @@ def get_trainer():
 
     checkpointer = ModelCheckpoint(
         dirpath="weights/finetuning/",
-        filename=f"SMTPP_Polish_Scores_Bekern_f{fold}",
+        filename=f"AdaptSMT_{exp}",
         monitor="val_SER",
         mode='min',
         save_top_k=1,
@@ -65,6 +75,5 @@ if __name__ == "__main__":
     args = parse_args()
     dataset = AdaptDataset(**args.dataset)
     model = WrapperAdaptSMT(args.model)
-    trainer = get_trainer()
-    data.train_dataset.set_trainer_data(trainer)
-    trainer.fit(model_wrapper, datamodule=data)
+    trainer = get_trainer(**args.trainer)
+    trainer.fit(model, datamodule=dataset)
