@@ -30,10 +30,15 @@ class WrapperAdaptSMT(LightningModule):
 
     def __init__(self, cfg: WrapperAdaptSMTConfig) -> None:
         super().__init__()
-        self.__load_model(cfg.checkpoint)
-        self.__configure_model()
+        self.__cfg = cfg
         self.__preds = []
         self.__grtrs = []
+
+    def setup(self, stage: str):
+        """Initializes the model configuration"""
+        if not hasattr(self, "__model"):
+            self.__load_model(self.__cfg.checkpoint)
+            self.__configure_model()
 
     @property
     def model(self) -> AdaptSMT:
@@ -117,20 +122,21 @@ class WrapperAdaptSMT(LightningModule):
     # pylint: disable=arguments-differ
     def training_step(self, batch):
         x, _, _, = batch
+        self.__model.loss.clear_weights()
         loss = self.__model(x)
         self.log('loss', loss, on_epoch=True, batch_size=1, prog_bar=True)
         return loss
 
     def validation_step(self, val_batch):
         x, _, y = val_batch
-        predicted_sequence, _ = self.model.predict(input=x)
+        predicted_sequence, _ = self.model.predict(input=x, convert_to_str=True)
 
         dec = "".join(predicted_sequence)
         dec = dec.replace("<t>", "\t")
         dec = dec.replace("<b>", "\n")
         dec = dec.replace("<s>", " ")
 
-        gt = "".join([self.model.i2w[token.item()]
+        gt = "".join([self.model.i2w[str(token.item())]
                      for token in y.squeeze(0)[:-1]])
         gt = gt.replace("<t>", "\t")
         gt = gt.replace("<b>", "\n")
