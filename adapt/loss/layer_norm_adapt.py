@@ -34,6 +34,7 @@ class LayerNormAdapt(ILoss):
     def __init__(self, model: torch.nn.Module, layer_norm_indices: List[int] | None = None) -> None:
         super().__init__()
         self.__create_indices(model, layer_norm_indices)
+        self.__compute_weights_from_source(model)
         self.__computed_weights = None
 
     def __repr__(self) -> str:
@@ -68,6 +69,25 @@ class LayerNormAdapt(ILoss):
                 return False
         return True
 
+    def __create_indices(self, model: torch.nn.Module, lns: List[int] | None) -> None:
+        """
+        Create the layer normalization indices to adapt. If not provided, it will extract them.
+        Model is also modified to allow forward hooks to extract the future statistics.
+
+        Args:
+            model: The model to adapt the layer normalization statistics.
+            lns: The layer normalization indices to adapt.
+        """
+        if not self.__are_valid_ln_indices(model, lns):
+            raise ValueError("Invalid layer normalization indices.")
+
+        modules = list(model.encoder.modules())
+
+        self.__lns = lns or [
+            i for i, module in enumerate(modules)
+            if module.__class__.__name__.endswith("ConvNextLayerNorm")
+        ]
+        
     def __hook_fn(self, module: torch.nn.Module, input: torch.Tensor, output: torch.Tensor) -> None:
         """
         Hook function to extract the layer normalization statistics.
@@ -88,35 +108,29 @@ class LayerNormAdapt(ILoss):
                 mean=module.weight.mean().item(),
                 variance=module.weight.var().item()
             ))
-
-    def __create_indices(self, model: torch.nn.Module, lns: List[int] | None) -> None:
-        """
-        Create the layer normalization indices to adapt. If not provided, it will extract them.
-        Model is also modified to allow forward hooks to extract the future statistics.
-
-        Args:
-            model: The model to adapt the layer normalization statistics.
-            lns: The layer normalization indices to adapt.
-        """
-        if not self.__are_valid_ln_indices(model, lns):
-            raise ValueError("Invalid layer normalization indices.")
-
-        modules = list(model.encoder.modules())
-
-        self.__lns_weights = []
-        self.__lns = lns if lns is not None else [
-            i for (i, module) in enumerate(modules)
-            if module.__class__.__name__.endswith("LayerNorm")
-        ]
-
-        for i in self.__lns:
-            self.__lns_weights.append(
-                LayerNormStatistics(
-                    mean=modules[i].weight.mean().item(),
-                    variance=modules[i].weight.var().item()
-                )
-            )
-            modules[i].register_forward_hook(self.__hook_fn)
+            
+    def __compute_weights_from_source(self, model: torch.nn.Module, source: Dataloader) -> None:
+        with torch.no_grad():
+            self.__lns_weights = [0.0 for _ in range(len(self.__lns))]
+            for i, (x, _) in enumerate(source):
+                x = x.to(model.device)
+                _ = model(x)
+                if i == 0:
+                    self.__lns_weights = [LayerNormStatistics(
+                        mean=module.weight.mean().detach(),
+                        variance=module.weight.var().detach()
+                    ) for module in model.encoder.modules() if module.__class__.__name__.endswith("ConvNextLayerNorm")]
+                else:
+                    for j, module in enumerate(model.encoder.modules()):
+                        if module.__class__.__name__.endswith("ConvNextLayerNorm"):
+                            self.__lns_weights[j].mean += module.weight.mean().detach()
+                            self.__lns_weights[j].variance += module.weight.var().detach()
+            for i, module in enumerate(model.encoder.modules()):
+                if module.__class__.__name__.endswith("ConvNextLayerNorm"):
+                    self.__lns_weights[i].mean /= len(source)
+                    self.__lns_weights[i].variance /= len(source)
+            logger.info("Layer normalization statistics computed from source.")
+            
 
     def dummy_loss(self, logits: torch.Tensor) -> torch.Tensor:
         """Dummy loss function to avoid the loss function to be empty."""
@@ -132,11 +146,11 @@ class LayerNormAdapt(ILoss):
             )
 
         # Stack the stored and computed statistics
-        stored_means = torch.stack([ln.mean for ln in self.__lns_weights])
-        stored_vars = torch.stack([ln.variance for ln in self.__lns_weights])
-        computed_means = torch.stack(
+        stored_means = torch.tensor([ln.mean for ln in self.__lns_weights])
+        stored_vars = torch.tensor([ln.variance for ln in self.__lns_weights])
+        computed_means = torch.tensor(
             [cw.mean for cw in self.__computed_weights])
-        computed_vars = torch.stack(
+        computed_vars = torch.tensor(
             [cw.variance for cw in self.__computed_weights])
 
         # Compute the loss in a batched manner

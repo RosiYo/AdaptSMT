@@ -39,6 +39,7 @@ class WrapperAdaptSMT(LightningModule):
         if not hasattr(self, "__model"):
             self.__load_model(self.__cfg.checkpoint)
             self.__configure_model()
+            summary(self.__model)
 
     @property
     def model(self) -> AdaptSMT:
@@ -77,12 +78,13 @@ class WrapperAdaptSMT(LightningModule):
 
         # Freeze all encoder parameters except adapted layer normalization parameters
         for i, module in enumerate(self.model.encoder.modules()):
-            if not i in self.__model.loss.ln_indices:
-                for param in module.parameters():
-                    param.requires_grad = False
-            else:
+            # Only train layers previous to a LN layer
+            if (i + 1) in self.__model.loss.ln_indices:
                 for param in module.parameters():
                     param.requires_grad = True
+            else:
+                for param in module.parameters():
+                    param.requires_grad = False
 
         # Freeze decoder parameters
         for param in self.__model.decoder.parameters():
