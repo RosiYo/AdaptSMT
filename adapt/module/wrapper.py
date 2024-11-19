@@ -50,9 +50,6 @@ class WrapperAdaptSMT(LightningModule):
         """[PROPERTY] Get whether the model is freezed or not."""
         return self.__is_freezed
 
-    def print(self, *args: Any, **kwargs: Any) -> None:
-        summary(self.__model)
-
     def configure_optimizers(self) -> Optimizer:
         return torch.optim.Adam(
             self.__model.trainable_params, lr=1e-4, amsgrad=False

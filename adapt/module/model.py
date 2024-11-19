@@ -10,7 +10,7 @@ from smt_model.modeling_smt import SMTModelForCausalLM
 
 class AdaptSMT(SMTModelForCausalLM):
     """Model for adapting the SMT model."""
-    
+
     @property
     def trainable_params(self):
         """[PROPERTY] Get the trainable parameters of the model."""
