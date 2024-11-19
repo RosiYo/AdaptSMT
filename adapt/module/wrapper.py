@@ -8,6 +8,7 @@ from typing import Any, Dict
 from lightning.pytorch import LightningModule
 from torchinfo import summary
 from torch.optim import Optimizer
+from torch.utils.data import Dataset
 import torch
 
 from adapt.loss.layer_norm_adapt import LayerNormAdapt
@@ -20,6 +21,7 @@ from eval_functions import compute_poliphony_metrics
 class WrapperAdaptSMTConfig:
     """Dataclass to store the configuration of the SMT model."""
     checkpoint: str
+    source_proxy: Dataset
 
 
 class WrapperAdaptSMT(LightningModule):
@@ -79,7 +81,7 @@ class WrapperAdaptSMT(LightningModule):
         # Freeze all encoder parameters except adapted layer normalization parameters
         for i, module in enumerate(self.model.encoder.modules()):
             # Only train layers previous to a LN layer
-            if (i + 1) in self.__model.loss.ln_indices:
+            if i + 1 in self.__model.loss.ln_indices:
                 for param in module.parameters():
                     param.requires_grad = True
             else:
@@ -108,7 +110,7 @@ class WrapperAdaptSMT(LightningModule):
         Currently only accepts LayerNormAdapt, but it will be extended in the future
         to support combinations of different criteria.
         """
-        self.__model.loss = LayerNormAdapt(self.__model)
+        self.__model.loss = LayerNormAdapt(self.__model, self.__cfg.source_proxy)
 
     def __configure_model(self) -> None:
         """Configure the model for adaptation."""

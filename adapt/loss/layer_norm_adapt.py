@@ -7,16 +7,19 @@ import logging
 from dataclasses import dataclass
 from typing import List
 import torch
+from torch.utils.data import Dataset
 
 from adapt.loss.loss import ILoss
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class LayerNormStatistics:
     """Dataclass to store the layer normalization statistics."""
-    mean: torch.Tensor
-    variance: torch.Tensor
+    mean: float
+    variance: float
+
 
 class LayerNormAdapt(ILoss):
     """
@@ -28,14 +31,20 @@ class LayerNormAdapt(ILoss):
     """
 
     __computed_weights: List[LayerNormStatistics] | None
-    __lns_weights: List[LayerNormStatistics]
+    __stored_means: torch.Tensor
+    __stored_vars: torch.Tensor
     __lns: List[int]
 
-    def __init__(self, model: torch.nn.Module, layer_norm_indices: List[int] | None = None) -> None:
+    def __init__(
+        self, 
+        model: torch.nn.Module, 
+        source_loader: Dataset, 
+        layer_norm_indices: List[int] | None = None
+    ) -> None:
         super().__init__()
         self.__create_indices(model, layer_norm_indices)
-        self.__compute_weights_from_source(model)
-        self.__computed_weights = None
+        self.__compute_weights_from_source(model, source_loader)
+        self.__computed_weights = []
 
     def __repr__(self) -> str:
         return f"LayerNormAdapt(ln_layers={len(self.ln_indices)})"
@@ -87,7 +96,7 @@ class LayerNormAdapt(ILoss):
             i for i, module in enumerate(modules)
             if module.__class__.__name__.endswith("ConvNextLayerNorm")
         ]
-        
+
     def __hook_fn(self, module: torch.nn.Module, input: torch.Tensor, output: torch.Tensor) -> None:
         """
         Hook function to extract the layer normalization statistics.
@@ -98,39 +107,33 @@ class LayerNormAdapt(ILoss):
         Args:
             module: The layer normalization module.
         """
-        if self.__computed_weights is None:
-            self.__computed_weights = [LayerNormStatistics(
-                mean=module.weight.mean().item(),
-                variance=module.weight.var().item()
-            )]
-        else:
-            self.__computed_weights.append(LayerNormStatistics(
-                mean=module.weight.mean().item(),
-                variance=module.weight.var().item()
-            ))
-            
-    def __compute_weights_from_source(self, model: torch.nn.Module, source: Dataloader) -> None:
+        self.__computed_weights.append(LayerNormStatistics(
+            mean=input.mean().item(),
+            variance=input.var().item()
+        ))
+
+    def __compute_weights_from_source(self, model: torch.nn.Module, source: Dataset) -> None:
         with torch.no_grad():
-            self.__lns_weights = [0.0 for _ in range(len(self.__lns))]
-            for i, (x, _) in enumerate(source):
-                x = x.to(model.device)
-                _ = model(x)
-                if i == 0:
-                    self.__lns_weights = [LayerNormStatistics(
-                        mean=module.weight.mean().detach(),
-                        variance=module.weight.var().detach()
-                    ) for module in model.encoder.modules() if module.__class__.__name__.endswith("ConvNextLayerNorm")]
-                else:
-                    for j, module in enumerate(model.encoder.modules()):
-                        if module.__class__.__name__.endswith("ConvNextLayerNorm"):
-                            self.__lns_weights[j].mean += module.weight.mean().detach()
-                            self.__lns_weights[j].variance += module.weight.var().detach()
-            for i, module in enumerate(model.encoder.modules()):
-                if module.__class__.__name__.endswith("ConvNextLayerNorm"):
-                    self.__lns_weights[i].mean /= len(source)
-                    self.__lns_weights[i].variance /= len(source)
-            logger.info("Layer normalization statistics computed from source.")
-            
+            lns_weights = [LayerNormStatistics(
+                0.0, 0.0) for _ in range(len(self.__lns))]
+            for x in source:
+                for i, module in enumerate(model.encoder.modules()):
+                    if i in self.__lns:
+                        idx = self.__lns.index(i)
+                        lns_weights[idx] = LayerNormStatistics(
+                            mean=lns_weights[idx].mean + x.mean().item(),
+                            variance=lns_weights[idx].variance + x.var().item()
+                        )
+                        module.register_forward_hook(self.__hook_fn)
+                    x = module(x)
+
+            for stats in lns_weights:
+                stats.mean /= len(source)
+                stats.variance /= len(source)
+
+            self.__stored_means = torch.Tensor([ln.mean for ln in lns_weights])
+            self.__stored_vars = torch.Tensor(
+                [ln.variance for ln in lns_weights])
 
     def dummy_loss(self, logits: torch.Tensor) -> torch.Tensor:
         """Dummy loss function to avoid the loss function to be empty."""
@@ -139,15 +142,8 @@ class LayerNormAdapt(ILoss):
     # pylint: disable=arguments-differ
     def forward(self, logits: torch.Tensor) -> torch.Tensor:
         """Define the loss function calculation given any input arguments."""
-        if self.__lns is None or self.__lns_weights is None:
-            raise ValueError(
-                "There has been a problem with the initial \
-                    layer normalization statistics calculation."
-            )
 
-        # Stack the stored and computed statistics
-        stored_means = torch.tensor([ln.mean for ln in self.__lns_weights])
-        stored_vars = torch.tensor([ln.variance for ln in self.__lns_weights])
+        # Compute the means and variances of the computed weights
         computed_means = torch.tensor(
             [cw.mean for cw in self.__computed_weights])
         computed_vars = torch.tensor(
@@ -155,8 +151,8 @@ class LayerNormAdapt(ILoss):
 
         # Compute the loss in a batched manner
         log_term = torch.log(torch.sqrt(computed_vars) /
-                             torch.sqrt(stored_vars))
-        variance_term = (stored_vars + (stored_means -
+                             torch.sqrt(self.__stored_vars))
+        variance_term = (self.__stored_vars + (self.__stored_means -
                          computed_means).pow(2)) / (2 * computed_vars)
         loss = log_term + variance_term - 0.5
 

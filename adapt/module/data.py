@@ -3,9 +3,13 @@ Simple module to handle the adaptation dataset.
 author: Adrián Roselló Pedraza (RosiYo)
 """
 
+import random
+import numpy as np
 import torch
+from torch.utils.data import Dataset
 from lightning import LightningDataModule
 
+from Generator.SynthGenerator import VerovioGenerator
 from data import RealDataset, batch_preparation_img2seq
 from utils.vocab_utils import check_and_retrieveVocabulary
 
@@ -74,4 +78,32 @@ class AdaptDataset(LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             collate_fn=batch_preparation_img2seq
+        )
+
+
+class GrandStaffDataset(Dataset):
+    """Dataset for the adaptation task."""
+
+    __ns: int
+    __generator: VerovioGenerator
+
+    def __init__(self, nsamples: int) -> None:
+        self.__ns = nsamples
+        self.__generator = VerovioGenerator(
+            sources="antoniorv6/grandstaff-ekern",
+            split="train"
+        )
+
+    def __len__(self) -> int:
+        return self.__ns
+
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        gen_author_title = np.random.rand() > 0.5
+        return self.__generator.generate_full_page_score(
+            max_systems=random.randint(3, 4),
+            strict_systems=False,
+            strict_height=(random.random() < 0.3),
+            include_author=gen_author_title,
+            include_title=gen_author_title,
+            reduce_ratio=0.5
         )

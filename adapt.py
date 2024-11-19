@@ -11,6 +11,7 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 
 from adapt.module import AdaptDataset, WrapperAdaptSMT, WrapperAdaptSMTConfig
+from adapt.module.data import GrandStaffDataset
 from adapt.utils.cfg import parse_dataset_arguments
 
 
@@ -25,7 +26,10 @@ def parse_args() -> SimpleNamespace:
             "exp": "Mozaertum_f0"
         },
         model=WrapperAdaptSMTConfig(
-            checkpoint="smt-camera-grandstaff",
+            checkpoint="synthetic_mozarteum",
+            source_proxy=GrandStaffDataset(
+                nsamples=1000
+            )
         )
     )
 
