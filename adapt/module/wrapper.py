@@ -8,7 +8,7 @@ from typing import Any, Dict
 from lightning.pytorch import LightningModule
 from torchinfo import summary
 from torch.optim import Optimizer
-from torch.utils.data import Dataset
+from torch.utils.data import IterableDataset
 import torch
 
 from adapt.loss.layer_norm_adapt import LayerNormAdapt
@@ -21,7 +21,7 @@ from eval_functions import compute_poliphony_metrics
 class WrapperAdaptSMTConfig:
     """Dataclass to store the configuration of the SMT model."""
     checkpoint: str
-    source_proxy: Dataset
+    source_proxy: IterableDataset
 
 
 class WrapperAdaptSMT(LightningModule):
@@ -41,7 +41,6 @@ class WrapperAdaptSMT(LightningModule):
         if not hasattr(self, "__model"):
             self.__load_model(self.__cfg.checkpoint)
             self.__configure_model()
-            summary(self.__model)
 
     @property
     def model(self) -> AdaptSMT:
@@ -114,11 +113,10 @@ class WrapperAdaptSMT(LightningModule):
 
     def __configure_model(self) -> None:
         """Configure the model for adaptation."""
-        print("\n", 80*"*", "\n")
-        print("\tSETTING UP MODEL FOR ADAPTATION")
-        print(80*"-")
+        print("Configuring model for adaptation...")
         self.__configure_criteria()
         self.freeze()
+        summary(self.__model)
 
     # pylint: disable=arguments-differ
     def training_step(self, batch):

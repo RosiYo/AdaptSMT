@@ -7,7 +7,8 @@ import logging
 from dataclasses import dataclass
 from typing import List
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import IterableDataset
+from tqdm import tqdm
 
 from adapt.loss.loss import ILoss
 
@@ -38,13 +39,14 @@ class LayerNormAdapt(ILoss):
     def __init__(
         self, 
         model: torch.nn.Module, 
-        source_loader: Dataset, 
+        source_loader: IterableDataset, 
         layer_norm_indices: List[int] | None = None
     ) -> None:
         super().__init__()
-        self.__create_indices(model, layer_norm_indices)
-        self.__compute_weights_from_source(model, source_loader)
         self.__computed_weights = []
+        self.__create_indices(model, layer_norm_indices)
+        self.__register_hooks(model)
+        self.__compute_weights_from_source(model, source_loader)
 
     def __repr__(self) -> str:
         return f"LayerNormAdapt(ln_layers={len(self.ln_indices)})"
@@ -90,12 +92,32 @@ class LayerNormAdapt(ILoss):
         if not self.__are_valid_ln_indices(model, lns):
             raise ValueError("Invalid layer normalization indices.")
 
-        modules = list(model.encoder.modules())
-
         self.__lns = lns or [
-            i for i, module in enumerate(modules)
+            i for i, module in enumerate(model.encoder.modules())
             if module.__class__.__name__.endswith("ConvNextLayerNorm")
         ]
+
+    def __compute_weights_from_source(self, model: torch.nn.Module, source: IterableDataset) -> None:
+        with torch.no_grad():
+            lns_weights = [LayerNormStatistics(
+                0.0, 0.0) for _ in range(len(self.__lns))]
+            for x, _ in tqdm(source):
+                # Leverage registered hooks to extract the statistics
+                x = x.to(model.device)
+                model.encoder(x)
+                for i, stats in enumerate(self.__computed_weights):
+                    lns_weights[i].mean += stats.mean
+                    lns_weights[i].variance += stats.variance
+                self.clear_weights()
+
+            print("Hola", lns_weights)
+            for stats in lns_weights:
+                stats.mean /= len(source)
+                stats.variance /= len(source)
+
+            self.__stored_means = torch.Tensor([ln.mean for ln in lns_weights])
+            self.__stored_vars = torch.Tensor(
+                [ln.variance for ln in lns_weights])
 
     def __hook_fn(self, module: torch.nn.Module, input: torch.Tensor, output: torch.Tensor) -> None:
         """
@@ -107,34 +129,23 @@ class LayerNormAdapt(ILoss):
         Args:
             module: The layer normalization module.
         """
+        input = input[0] # Extract the input tensor
         self.__computed_weights.append(LayerNormStatistics(
             mean=input.mean().item(),
             variance=input.var().item()
         ))
-
-    def __compute_weights_from_source(self, model: torch.nn.Module, source: Dataset) -> None:
-        with torch.no_grad():
-            lns_weights = [LayerNormStatistics(
-                0.0, 0.0) for _ in range(len(self.__lns))]
-            for x in source:
-                for i, module in enumerate(model.encoder.modules()):
-                    if i in self.__lns:
-                        idx = self.__lns.index(i)
-                        lns_weights[idx] = LayerNormStatistics(
-                            mean=lns_weights[idx].mean + x.mean().item(),
-                            variance=lns_weights[idx].variance + x.var().item()
-                        )
-                        module.register_forward_hook(self.__hook_fn)
-                    x = module(x)
-
-            for stats in lns_weights:
-                stats.mean /= len(source)
-                stats.variance /= len(source)
-
-            self.__stored_means = torch.Tensor([ln.mean for ln in lns_weights])
-            self.__stored_vars = torch.Tensor(
-                [ln.variance for ln in lns_weights])
-
+        
+    def __register_hooks(self, model: torch.nn.Module) -> None:
+        """
+        Register the forward hooks to extract the layer normalization statistics.
+        
+        Args:
+            model: The model to adapt the layer normalization statistics.
+        """
+        for i, module in enumerate(model.modules()):
+            if i in self.__lns:
+                module.register_forward_hook(self.__hook_fn)
+                
     def dummy_loss(self, logits: torch.Tensor) -> torch.Tensor:
         """Dummy loss function to avoid the loss function to be empty."""
         return logits.sum() * 0

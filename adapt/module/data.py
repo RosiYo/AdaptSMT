@@ -5,8 +5,9 @@ author: Adrián Roselló Pedraza (RosiYo)
 
 import random
 import numpy as np
+from data_augmentation.data_augmentation import augment
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import IterableDataset
 from lightning import LightningDataModule
 
 from Generator.SynthGenerator import VerovioGenerator
@@ -81,11 +82,8 @@ class AdaptDataset(LightningDataModule):
         )
 
 
-class GrandStaffDataset(Dataset):
-    """Dataset for the adaptation task."""
-
-    __ns: int
-    __generator: VerovioGenerator
+class GrandStaffIterableDataset(IterableDataset):
+    """IterableDataset for the adaptation task."""
 
     def __init__(self, nsamples: int) -> None:
         self.__ns = nsamples
@@ -93,17 +91,21 @@ class GrandStaffDataset(Dataset):
             sources="antoniorv6/grandstaff-ekern",
             split="train"
         )
-
-    def __len__(self) -> int:
+        
+    def __len__(self):
+        """Return the number of samples."""
         return self.__ns
 
-    def __getitem__(self, idx: int) -> torch.Tensor:
-        gen_author_title = np.random.rand() > 0.5
-        return self.__generator.generate_full_page_score(
-            max_systems=random.randint(3, 4),
-            strict_systems=False,
-            strict_height=(random.random() < 0.3),
-            include_author=gen_author_title,
-            include_title=gen_author_title,
-            reduce_ratio=0.5
-        )
+    def __iter__(self):
+        """Yield samples on demand."""
+        for _ in range(self.__ns):
+            gen_author_title = np.random.rand() > 0.5
+            x, y = self.__generator.generate_full_page_score(
+                max_systems=random.randint(3, 4),
+                strict_systems=False,
+                strict_height=(random.random() < 0.3),
+                include_author=gen_author_title,
+                include_title=gen_author_title,
+                reduce_ratio=0.5
+            )
+            yield augment(x).unsqueeze(1), y

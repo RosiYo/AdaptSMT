@@ -11,7 +11,7 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 
 from adapt.module import AdaptDataset, WrapperAdaptSMT, WrapperAdaptSMTConfig
-from adapt.module.data import GrandStaffDataset
+from adapt.module.data import GrandStaffIterableDataset
 from adapt.utils.cfg import parse_dataset_arguments
 
 
@@ -27,8 +27,8 @@ def parse_args() -> SimpleNamespace:
         },
         model=WrapperAdaptSMTConfig(
             checkpoint="synthetic_mozarteum",
-            source_proxy=GrandStaffDataset(
-                nsamples=1000
+            source_proxy=GrandStaffIterableDataset(
+                nsamples=100
             )
         )
     )
@@ -67,8 +67,8 @@ def get_trainer(exp: str) -> Trainer:
     )
 
     return Trainer(
-        max_epochs=100000,
-        check_val_every_n_epoch=3500,
+        max_epochs=1000,
+        check_val_every_n_epoch=5,
         logger=wandb_logger,
         callbacks=[checkpointer, early_stopping],
         precision='16-mixed'
