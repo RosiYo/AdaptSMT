@@ -1,7 +1,7 @@
 import cv2
 from Generator.SynthGenerator import VerovioGenerator
 
-generator = VerovioGenerator(sources=['Data/GrandStaff/partitions_grandstaff/types/train.txt'], base_folder='Data/GrandStaff/', tokenization_mode='bekern')
+generator = VerovioGenerator(sources="antoniorv6/grandstaff-ekern", tokenization_mode='bekern')
 
 image, ground_truth = generator.generate_full_page_score(max_systems=2, strict_systems=True, strict_height=False, reduce_ratio=0.5)
 

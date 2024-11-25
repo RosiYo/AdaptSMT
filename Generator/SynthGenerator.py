@@ -128,12 +128,18 @@ class VerovioGenerator():
         
         return pngfile
     
+    # TODO: Review this method
     def inkify_image(self, sample):
+        return sample
+        
         image = IMG.from_array(np.array(sample))
         paint = rfloat(0, 1)
         image.oil_paint(paint)
-        
         return Image.fromarray(np.array(image))
+        
+        paint = 1
+        image = cv2.xphoto.oilPainting(sample, paint, 1)
+        return Image.fromarray(image)
     
     def filter_system_continuation(self, system, cut_end=True):
         if cut_end:
@@ -238,8 +244,9 @@ class VerovioGenerator():
         
         width = int(np.ceil(x.shape[1] * reduce_ratio))
         height = int(np.ceil(x.shape[0] * reduce_ratio))
+
         x = cv2.resize(x, (width, height))
-   
+
         gt_sequence = ""
         
         if self.tokenization_mode == "kern":

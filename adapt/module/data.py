@@ -109,7 +109,7 @@ class GrandStaffIterableDataset(IterableDataset):
             x, y = self.__generator.generate_full_page_score(
                 max_systems=random.randint(3, 4),
                 strict_systems=False,
-                strict_height=(random.random() < 0.3),
+                strict_height=False, # (random.random() < 0.3),
                 include_author=gen_author_title,
                 include_title=gen_author_title,
                 reduce_ratio=0.5,

@@ -15,16 +15,18 @@ def extract_pca_image_from_embeddings(groups_embeddings: dict, filename: str):
     coloring points based on their group.
 
     Args:
-        groups_embeddings (dict): A dictionary where keys are group names (str) and values are torch.Tensor embeddings.
+        groups_embeddings (dict): A dictionary where keys are group names (str) and values are numpy.ndarray embeddings.
         filename (str): The filename to save the image to.
     """
     # Combine embeddings and keep track of group labels
     embeddings_list = []
     labels = []
     for group_name, embeddings in groups_embeddings.items():
-        embeddings_np = embeddings.detach().cpu().numpy()
-        embeddings_list.append(embeddings_np)
-        labels.extend([group_name] * embeddings_np.shape[0])
+        # Ensure embeddings are 2D
+        if embeddings.ndim > 2:
+            embeddings = embeddings.reshape(embeddings.shape[0], -1)
+        embeddings_list.append(embeddings)
+        labels.extend([group_name] * embeddings.shape[0])
 
     embeddings_combined = np.vstack(embeddings_list)
     labels = np.array(labels)
@@ -38,7 +40,7 @@ def extract_pca_image_from_embeddings(groups_embeddings: dict, filename: str):
     unique_groups = np.unique(labels)
     for group in unique_groups:
         idx = labels == group
-        plt.scatter(components[idx, 0], components[idx, 1], label=group, alpha=0.7)
+        plt.scatter(components[idx, 0], components[idx, 1], label=group, alpha=0.7, s=1)
     plt.xlabel("Principal Component 1")
     plt.ylabel("Principal Component 2")
     plt.title("PCA Projection")
@@ -55,7 +57,8 @@ def extract_tsne_image_from_embeddings(
     coloring points based on their group.
 
     Args:
-        groups_embeddings (dict): A dictionary where keys are group names (str) and values are torch.Tensor embeddings.
+        groups_embeddings (dict): 
+            A dictionary where keys are group names (str) and values are numpy.ndarray embeddings.
         filename (str): The filename to save the image to.
         perplexity (float): The perplexity parameter for T-SNE.
     """
@@ -63,15 +66,17 @@ def extract_tsne_image_from_embeddings(
     embeddings_list = []
     labels = []
     for group_name, embeddings in groups_embeddings.items():
-        embeddings_np = embeddings.detach().cpu().numpy()
-        embeddings_list.append(embeddings_np)
-        labels.extend([group_name] * embeddings_np.shape[0])
+        # Ensure embeddings are 2D
+        if embeddings.ndim > 2:
+            embeddings = embeddings.reshape(embeddings.shape[0], -1)
+        embeddings_list.append(embeddings)
+        labels.extend([group_name] * embeddings.shape[0])
 
     embeddings_combined = np.vstack(embeddings_list)
     labels = np.array(labels)
 
     # Perform T-SNE to reduce dimensions to 2
-    tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=1000, random_state=42)
+    tsne = TSNE(n_components=2, perplexity=perplexity, max_iter=250, random_state=42, n_jobs=-1)
     components = tsne.fit_transform(embeddings_combined)
 
     # Plot the T-SNE components with different colors for each group
@@ -79,7 +84,7 @@ def extract_tsne_image_from_embeddings(
     unique_groups = np.unique(labels)
     for group in unique_groups:
         idx = labels == group
-        plt.scatter(components[idx, 0], components[idx, 1], label=group, alpha=0.7)
+        plt.scatter(components[idx, 0], components[idx, 1], label=group, alpha=0.7, s=1)
     plt.xlabel("Component 1")
     plt.ylabel("Component 2")
     plt.title("T-SNE Projection")
