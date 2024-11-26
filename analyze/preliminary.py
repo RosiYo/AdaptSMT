@@ -14,6 +14,7 @@ import cv2
 from adapt.module.data import GrandStaffIterableDataset
 from adapt.utils.cfg import parse_dataset_arguments
 from analyze.components import extract_pca_image_from_embeddings, extract_tsne_image_from_embeddings
+from analyze.gradCAM import GradCAM
 from data import RealDataset, SyntheticOMRDataset
 from smt_model.modeling_smt import SMTModelForCausalLM
 from utils.vocab_utils import check_and_retrieveVocabulary
@@ -90,17 +91,24 @@ if __name__ == "__main__":
     args = parse_args()
     smt_model = SMTModelFacade.from_pretrained(
         f"antoniorv6/{args.checkpoint}")
-    for param in smt_model.parameters():
-        param.requires_grad = False
+    smt_model.eval()
     print("Model loaded successfully.")
 
-    # src_dataset = GrandStaffIterableDataset(nsamples=100)
+    src_dataset = GrandStaffIterableDataset(nsamples=100)
+    print("Source dataset created.")
+
+    GradCAM.generate_heatmaps(smt_model, src_dataset, "a", smt_model.decoder.out_layer)
+
+    # for param in smt_model.parameters():
+    #     param.requires_grad = False
+    # print("Model frozen.")
+    
     # feats = {"source": obtain_encoder_embeddings(smt_model, src_dataset)}
     # print("Source embeddings obtained.")
 
-    tgt_dataset = RealDatasetFacade(args.target_dataset.data)
-    feats["target"] = obtain_encoder_embeddings(smt_model, tgt_dataset)
-    print("Target embeddings obtained.")
+    # tgt_dataset = RealDatasetFacade(args.target_dataset.data)
+    # feats["target"] = obtain_encoder_embeddings(smt_model, tgt_dataset)
+    # print("Target embeddings obtained.")
 
     # extract_pca_image_from_embeddings(feats, "pca.png")
-    extract_tsne_image_from_embeddings(feats, "tsne.png")
+    # extract_tsne_image_from_embeddings(feats, "tsne.png")
